@@ -35,3 +35,4 @@ Desktop.ini
 
 # FoundryLocal model cache
 .foundry/
+.localFoundry/
