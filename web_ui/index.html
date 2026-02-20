@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Travel Planner — Multi-Agent Chat</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="app">
+        <!-- Sidebar: History -->
+        <aside class="sidebar" id="sidebar">
+            <div class="sidebar-header">
+                <h2>✈️ Travel Planner</h2>
+                <span class="sidebar-subtitle">Multi-Agent Orchestration</span>
+            </div>
+            <div class="history-section">
+                <div class="history-header">
+                    <h3>History</h3>
+                    <button id="clear-history-btn" class="btn-icon" title="Clear history">🗑️</button>
+                </div>
+                <ul id="history-list" class="history-list"></ul>
+            </div>
+        </aside>
+
+        <!-- Main Chat Area -->
+        <main class="chat-main">
+            <!-- Header -->
+            <header class="chat-header">
+                <button id="toggle-sidebar-btn" class="btn-icon" title="Toggle sidebar">☰</button>
+                <div class="header-info">
+                    <h1>Travel Planner</h1>
+                    <span class="header-subtitle">Researcher → WeatherAnalyst → Planner</span>
+                </div>
+                <div class="header-status" id="connection-status">
+                    <span class="status-dot"></span>
+                    <span class="status-text">Ready</span>
+                </div>
+            </header>
+
+            <!-- Messages Area -->
+            <div class="messages-container" id="messages-container">
+                <div class="messages" id="messages">
+                    <!-- Welcome message -->
+                    <div class="message system-message">
+                        <div class="message-content">
+                            <p>👋 Welcome to <strong>Travel Planner</strong>!</p>
+                            <p>I use three AI agents to create your travel itinerary:</p>
+                            <ul>
+                                <li>🔍 <strong>Researcher</strong> — Discovers destinations, attractions, and culture</li>
+                                <li>🌤️ <strong>WeatherAnalyst</strong> — Checks weather, time zones, and local restaurants</li>
+                                <li>📋 <strong>Planner</strong> — Synthesizes everything into a complete travel plan</li>
+                            </ul>
+                            <p>Try: <em>"Plan a 3-day trip to Tokyo, Japan. I like sushi and temples."</em></p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Agent Progress Indicator -->
+            <div class="agent-progress" id="agent-progress" style="display: none;">
+                <div class="progress-content">
+                    <div class="spinner"></div>
+                    <span class="progress-agent" id="progress-agent-name"></span>
+                    <span class="progress-text">is working...</span>
+                </div>
+            </div>
+
+            <!-- Input Area -->
+            <div class="input-area">
+                <form id="query-form" class="input-form">
+                    <textarea 
+                        id="query-input" 
+                        class="query-input" 
+                        placeholder="Where would you like to travel? Describe your ideal trip..."
+                        rows="1"
+                        autofocus
+                    ></textarea>
+                    <button type="submit" id="submit-btn" class="btn-send" title="Send query">
+                        <span class="btn-send-icon">➤</span>
+                    </button>
+                </form>
+                <p class="input-hint">Press Enter to send, Shift+Enter for new line</p>
+            </div>
+        </main>
+    </div>
+
+    <!-- OpenTelemetry must load before app.js -->
+    <script src="telemetry.js"></script>
+    <script src="app.js"></script>
+</body>
+</html>

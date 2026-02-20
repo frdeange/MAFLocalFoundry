@@ -2,16 +2,24 @@
 # Docker Compose - Travel Planner Infrastructure
 # ──────────────────────────────────────────────────────────────
 # Services:
-#   - mcp-server:  FastMCP travel tools (Streamable HTTP, port 8090)
-#   - aspire:      .NET Aspire Dashboard (traces + metrics + logs)
+#   - mcp-server:      FastMCP travel tools (Streamable HTTP, port 8090)
+#   - aspire:          .NET Aspire Dashboard (traces + metrics + logs)
+#   - web-ui:          Chat interface (Nginx, port 8080)
+#   - otel-collector:  Browser trace bridge (OTLP HTTP→gRPC, port 4319)
 #
 # Usage:
-#   docker compose up -d          # Start services
+#   docker compose up -d          # Start all services
 #   docker compose down           # Stop services
 #   docker compose logs -f        # Follow logs
 #
-# Then run the orchestration locally:
+# Then run the API server locally (requires GPU):
+#   python api.py
+#
+# Or use CLI directly:
 #   python main.py "Plan a trip to Paris"
+#
+# Web UI: http://localhost:8080
+# Aspire Dashboard: http://localhost:18888
 # ──────────────────────────────────────────────────────────────
 
 services:
@@ -48,4 +56,37 @@ services:
       - "4318:18890"   # OTLP HTTP (host 4318 → container 18890)
     environment:
       - DOTNET_DASHBOARD_UNSECURED_ALLOW_ANONYMOUS=true
+    restart: unless-stopped
+
+  # ── Web UI (Chat Interface) ────────────────────────────────
+  web-ui:
+    build:
+      context: ./web_ui
+      dockerfile: Dockerfile
+    container_name: travel-web-ui
+    ports:
+      - "8080:80"
+    depends_on:
+      - mcp-server
+      - otel-collector
+    restart: unless-stopped
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost/"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
+
+  # ── OpenTelemetry Collector (Browser Trace Bridge) ─────────
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:latest
+    container_name: travel-otel-collector
+    ports:
+      - "4319:4319"
+    volumes:
+      - ./otel-collector/otel-collector-config.yaml:/etc/otelcol-contrib/config.yaml
+    depends_on:
+      - aspire-dashboard
     restart: unless-stopped

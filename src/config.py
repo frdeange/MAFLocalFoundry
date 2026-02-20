@@ -40,6 +40,12 @@ class Settings:
     otel_service_name: str = field(
         default_factory=lambda: os.getenv("OTEL_SERVICE_NAME", "travel-planner-orchestration")
     )
+    api_host: str = field(
+        default_factory=lambda: os.getenv("API_HOST", "0.0.0.0")
+    )
+    api_port: int = field(
+        default_factory=lambda: int(os.getenv("API_PORT", "8000"))
+    )
 
 
 def get_settings() -> Settings:

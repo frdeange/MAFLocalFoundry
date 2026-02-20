@@ -21,6 +21,15 @@ class TestSequentialWorkflowPattern:
         assert "SequentialBuilder" in source
         assert "participants=" in source
 
+    def test_workflow_enables_intermediate_outputs(self) -> None:
+        """SequentialBuilder must enable intermediate_outputs for progressive streaming."""
+        source = inspect.getsource(
+            __import__("src.workflows.travel_planner", fromlist=["build_travel_planner_workflow"])
+        )
+        assert "intermediate_outputs=True" in source, (
+            "SequentialBuilder must use intermediate_outputs=True for progressive UI streaming"
+        )
+
     def test_workflow_imports_from_orchestrations(self) -> None:
         """SequentialBuilder must be imported from agent_framework.orchestrations."""
         source = inspect.getsource(

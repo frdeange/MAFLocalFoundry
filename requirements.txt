@@ -14,6 +14,12 @@ opentelemetry-exporter-otlp-proto-grpc
 # ── Configuration ────────────────────────────────────────────
 python-dotenv
 
+# ── Web API ──────────────────────────────────────────────────
+fastapi
+uvicorn[standard]
+sse-starlette
+opentelemetry-instrumentation-fastapi
+
 # ── Testing ──────────────────────────────────────────────────
 pytest
 pytest-asyncio

@@ -23,24 +23,32 @@ User Query → [Researcher] → [WeatherAnalyst] → [Planner] → Travel Plan
 
 | Component | Technology | Location | Port |
 |-----------|-----------|----------|------|
-| Orchestrator | MAF SequentialBuilder | Host process (`main.py`) | — |
+| Orchestrator | MAF SequentialBuilder | Host process (`main.py` / `api.py`) | — |
+| Web API | FastAPI + SSE | Host process (`api.py`) | 8000 |
 | LLM Runtime | FoundryLocal (GPU) | Host process | Auto-assigned |
+| Web UI | Vanilla JS + Nginx | Docker container | 8080 |
 | MCP Server | FastMCP 3.0 (Streamable HTTP) | Docker container | 8090 |
+| OTel Collector | OTel Collector Contrib | Docker container | 4319 (OTLP HTTP) |
 | Observability | Aspire Dashboard | Docker container | 18888 (UI), 4317→18889 (OTLP gRPC) |
 
 ### Key Data Flow
 
-1. `main.py` loads `.env`, initializes FoundryLocal, builds workflow
-2. `SequentialBuilder` chains 3 agents with shared `list[Message]` context
-3. WeatherAnalyst connects to MCP server via `MCPStreamableHTTPTool`
-4. OpenTelemetry traces exported to Aspire Dashboard via OTLP gRPC
-5. MCP server also auto-instrumented (FastMCP native OTel spans)
+1. User interacts via Web UI (:8080) or CLI (`main.py`)
+2. Web UI sends POST to `/api/plan`, Nginx proxies to FastAPI (:8000)
+3. `api.py` / `main.py` loads `.env`, initializes FoundryLocal, builds workflow
+4. `SequentialBuilder` chains 3 agents with shared `list[Message]` context
+5. WeatherAnalyst connects to MCP server via `MCPStreamableHTTPTool`
+6. API streams SSE events (agent_started, message, output) back to browser
+7. OpenTelemetry traces exported to Aspire Dashboard via OTLP gRPC
+8. Browser traces exported via OTel Collector (OTLP HTTP → gRPC → Aspire)
+9. MCP server also auto-instrumented (FastMCP native OTel spans)
 
 ## Project Structure
 
 ```
-├── main.py                          # Entry point — orchestration
-├── docker-compose.yml               # MCP server + Aspire Dashboard
+├── main.py                          # CLI entry point — orchestration
+├── api.py                           # FastAPI server — Web UI backend (SSE)
+├── docker-compose.yml               # 4 services: MCP, Aspire, Web UI, OTel Collector
 ├── requirements.txt                 # Host Python dependencies
 ├── .env / .env.example              # Configuration
 ├── AGENTS.md                        # This file
@@ -59,17 +67,31 @@ User Query → [Researcher] → [WeatherAnalyst] → [Planner] → Travel Plan
 │       ├── __init__.py              # Re-exports workflow builder
 │       └── travel_planner.py        # SequentialBuilder pipeline
 │
+├── web_ui/
+│   ├── Dockerfile                   # Nginx Alpine container
+│   ├── nginx.conf                   # Static files + /api/ + /otlp/ proxy
+│   ├── index.html                   # Chat interface layout
+│   ├── app.js                       # SSE streaming, message rendering, history
+│   ├── telemetry.js                 # Browser OTel (traceparent, OTLP/HTTP export)
+│   └── style.css                    # Dark theme, agent-specific colors
+│
+├── otel-collector/
+│   └── otel-collector-config.yaml   # OTLP HTTP→gRPC bridge with CORS
+│
 ├── mcp_server/
 │   ├── server.py                    # FastMCP tool definitions + /health
 │   ├── Dockerfile                   # Python 3.13-slim + OTel auto-instrument
 │   └── requirements.txt             # fastmcp, opentelemetry-distro, exporter
 │
 ├── tests/
+│   ├── test_api.py                  # API structural tests (44 tests)
 │   ├── test_architecture.py         # Project structure compliance
 │   ├── test_config.py               # Settings defaults and env loading
+│   ├── test_docker_integration.py   # Docker compose + OTel collector tests (43 tests)
 │   ├── test_mcp_tools.py            # MCP tool unit tests (parametrized)
 │   ├── test_telemetry.py            # OTel setup and span helpers
-│   ├── test_telemetry_patterns.py   # OTel config validation (Dockerfile, compose)
+│   ├── test_telemetry_patterns.py   # OTel config validation (all layers)
+│   ├── test_web_ui.py              # Web UI structural tests (80 tests)
 │   └── test_workflow_patterns.py    # Workflow structure and patterns
 │
 ├── docs/
@@ -136,6 +158,8 @@ All config via environment variables, loaded from `.env`:
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | `http://localhost:4317` | Host orchestrator |
 | `OTEL_SERVICE_NAME` | `travel-planner-orchestration` | Host orchestrator |
 | `ENABLE_OTEL` | `true` | Host orchestrator |
+| `API_HOST` | `0.0.0.0` | FastAPI server |
+| `API_PORT` | `8000` | FastAPI server |
 | `OTEL_SERVICE_NAME` (container) | `travel-mcp-tools` | MCP server container |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` (container) | `http://aspire-dashboard:18889` | MCP server container |
 | `OTEL_PYTHON_EXCLUDED_URLS` | `health` | MCP server container |
@@ -143,20 +167,26 @@ All config via environment variables, loaded from `.env`:
 ### Telemetry
 
 - Host process: Manual OTel SDK via `agent_framework.observability.configure_otel_providers()`
+- API server: `FastAPIInstrumentor.instrument_app()` for automatic HTTP span creation
 - MCP server: Auto-instrumented via `opentelemetry-instrument` CLI wrapper in Dockerfile
 - FastMCP 3.0 creates native spans: `tools/call {name}` with MCP semantic conventions
+- Browser: Lightweight custom OTel in `telemetry.js` — `traceparent` propagation + OTLP/HTTP export
+- OTel Collector: OTLP HTTP→gRPC bridge with CORS for browser trace export
 - Custom spans: `trace_workflow()`, `trace_agent()` context managers in `src/telemetry.py`
 - Custom metrics: `workflow.duration`, `agent.duration`, `mcp.tool_calls`
 
 ### Testing
 
 ```bash
-pytest tests/ -v          # All tests (~61)
+pytest tests/ -v          # All tests (~276)
+pytest tests/ -v -k api   # API tests only
+pytest tests/ -v -k web   # Web UI tests only
 pytest tests/ -v -k mcp   # MCP-related only
 ```
 
 - Tests are **structural/compliance** — they validate code patterns, not runtime behavior
 - Tests read source files to check for patterns (imports, config, structure)
+- Docker tests use `yaml.safe_load()` for structured YAML assertions
 - No mocking of LLM calls — agents are tested via architecture compliance
 - MCP tool functions are unit-tested directly (imported from `mcp_server.server`)
 
@@ -165,9 +195,9 @@ pytest tests/ -v -k mcp   # MCP-related only
 ### Start/Stop
 
 ```bash
-docker compose up -d       # Start MCP server + Aspire Dashboard
+docker compose up -d       # Start all 4 services
 docker compose down        # Stop and remove
-docker compose build --no-cache mcp-server  # Rebuild after changes
+docker compose build --no-cache  # Rebuild after changes
 ```
 
 ### Container Details
@@ -183,10 +213,23 @@ docker compose build --no-cache mcp-server  # Rebuild after changes
 - Auth: disabled (`DOTNET_DASHBOARD_UNSECURED_ALLOW_ANONYMOUS=true`)
 - Port mapping: Host 4317 → Container 18889 (OTLP gRPC)
 
-### Important: After changing `mcp_server/` files
+**Web UI** (`travel-web-ui`):
+- Image: Custom from `web_ui/Dockerfile` (Nginx Alpine)
+- Port mapping: Host 8080 → Container 80
+- Proxies `/api/` to `host.docker.internal:8000` (FastAPI on host)
+- Proxies `/otlp/` to `otel-collector:4319` (browser trace export)
+- Healthcheck: `wget --spider http://localhost/` every 30s
+
+**OTel Collector** (`travel-otel-collector`):
+- Image: `otel/opentelemetry-collector-contrib:latest`
+- Port mapping: Host 4319 → Container 4319 (OTLP HTTP with CORS)
+- Bridges browser OTLP/HTTP → Aspire OTLP/gRPC
+- Config: `otel-collector/otel-collector-config.yaml`
+
+### Important: After changing container files
 
 1. `docker compose down`
-2. `docker compose build --no-cache mcp-server`
+2. `docker compose build --no-cache`
 3. `docker compose up -d`
 
 ## Key Dependencies
@@ -200,8 +243,10 @@ docker compose build --no-cache mcp-server  # Rebuild after changes
 | `agent-framework-orchestrations` | SequentialBuilder |
 | `fastmcp==3.0.0` | MCP client (used by host for MCPStreamableHTTPTool) |
 | `opentelemetry-api`, `opentelemetry-sdk` | Telemetry |
-| `opentelemetry-exporter-otlp-proto-grpc` | OTLP export |
-| `python-dotenv` | .env loading |
+| `opentelemetry-exporter-otlp-proto-grpc` | OTLP export || `fastapi` | Web API framework |
+| `uvicorn[standard]` | ASGI server |
+| `sse-starlette` | Server-Sent Events support |
+| `opentelemetry-instrumentation-fastapi` | Automatic HTTP span instrumentation || `python-dotenv` | .env loading |
 | `pytest`, `pytest-asyncio` | Testing |
 
 ### MCP Server Container (mcp_server/requirements.txt)
@@ -234,12 +279,22 @@ docker compose build --no-cache mcp-server  # Rebuild after changes
 2. Export from `src/workflows/__init__.py`
 3. See `docs/creating-workflows.md` for patterns
 
-### Run End-to-End
+### Run End-to-End (CLI)
 
 ```bash
 # Prerequisites: Docker running, GPU available, FoundryLocal installed
 docker compose up -d
 python main.py "Plan a trip to Paris"
+# View traces at http://localhost:18888
+```
+
+### Run End-to-End (Web UI)
+
+```bash
+# Prerequisites: Docker running, GPU available, FoundryLocal installed
+docker compose up -d
+python api.py              # Start FastAPI on :8000
+# Open http://localhost:8080 in browser
 # View traces at http://localhost:18888
 ```
 
@@ -251,7 +306,9 @@ python main.py "Plan a trip to Paris"
 - **The `.env` file is gitignored** — copy from `.env.example` after cloning
 - **`prototypes/` directory** — contains early experiments, not part of the production pipeline
 - **MCP server has mock data** — weather, restaurants are hardcoded dictionaries (PoC)
-- **`load_dotenv()` must be called BEFORE MAF/OTel imports** in `main.py` — order matters
+- **`load_dotenv()` must be called BEFORE MAF/OTel imports** in `main.py` and `api.py` — order matters
+- **FastAPI runs on host** — requires GPU access, cannot be containerized
+- **Web UI proxies to host** — uses `host.docker.internal` for API and OTel Collector for traces
 - For documentation, logs, events, messages. Use English as default language. The chat in Copilot could be in the user language.
 
 ## External Documentation

@@ -1,0 +1,43 @@
+# ──────────────────────────────────────────────────────────────
+# OpenTelemetry Collector Configuration
+# ──────────────────────────────────────────────────────────────
+# Purpose: Bridge between browser OTLP/HTTP traces and Aspire Dashboard
+# (gRPC). Browsers cannot use gRPC and Aspire doesn't serve CORS headers,
+# so this Collector accepts OTLP/HTTP with CORS and forwards via gRPC.
+#
+# Trace flow:
+#   Browser → OTLP/HTTP (port 4319) → Collector → gRPC → Aspire Dashboard
+# ──────────────────────────────────────────────────────────────
+
+receivers:
+  otlp:
+    protocols:
+      http:
+        endpoint: "0.0.0.0:4319"
+        cors:
+          allowed_origins:
+            - "*"
+          allowed_headers:
+            - "*"
+          max_age: 7200
+
+exporters:
+  otlp/aspire:
+    endpoint: "aspire-dashboard:18889"
+    tls:
+      insecure: true
+
+  debug:
+    verbosity: basic
+
+processors:
+  batch:
+    timeout: 5s
+    send_batch_size: 512
+
+service:
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [otlp/aspire, debug]

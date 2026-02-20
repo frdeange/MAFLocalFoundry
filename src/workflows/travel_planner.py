@@ -45,8 +45,11 @@ def build_travel_planner_workflow(
     planner = create_planner_agent(client)
 
     # Build sequential workflow: Researcher → WeatherAnalyst → Planner
+    # intermediate_outputs=True emits output events after each agent completes,
+    # enabling progressive streaming to the UI instead of a single batch at the end.
     workflow = SequentialBuilder(
         participants=[researcher, weather_analyst, planner],
+        intermediate_outputs=True,
     ).build()
 
     return workflow, mcp_tool

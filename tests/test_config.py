@@ -56,3 +56,29 @@ class TestGetSettings:
         monkeypatch.setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://otel:5555")
         s = get_settings()
         assert s.otel_endpoint == "http://otel:5555"
+
+    def test_reads_api_host_from_env(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("API_HOST", "127.0.0.1")
+        s = get_settings()
+        assert s.api_host == "127.0.0.1"
+
+    def test_reads_api_port_from_env(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("API_PORT", "9000")
+        s = get_settings()
+        assert s.api_port == 9000
+
+
+class TestApiSettings:
+    """Tests for the API-related settings fields."""
+
+    def test_api_host_default(self) -> None:
+        s = Settings()
+        assert s.api_host == "0.0.0.0"
+
+    def test_api_port_default(self) -> None:
+        s = Settings()
+        assert s.api_port == 8000
+
+    def test_api_port_is_int(self) -> None:
+        s = Settings()
+        assert isinstance(s.api_port, int)

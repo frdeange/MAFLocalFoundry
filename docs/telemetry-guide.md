@@ -18,16 +18,24 @@ timing, plus MCP tool-call counters.
 ## Architecture
 
 ```
-Python Process (host)                   Docker Network
-┌──────────────────────┐     gRPC     ┌──────────────────────┐
-│  MAF + OTel SDK      │ ──────────→  │  Aspire Dashboard    │
-│                      │   :4317      │  :18888 (UI)         │
-│  TracerProvider      │              │  :18889 (OTLP gRPC)  │
-│  MeterProvider       │              │  :18890 (OTLP HTTP)  │
-│  LoggerProvider      │              └──────────────────────┘
-└──────────────────────┘                        ▲
+Browser (telemetry.js)
+┌──────────────────────┐  OTLP/HTTP  ┌──────────────────────┐
+│  Lightweight OTel    │ ──────────→  │  OTel Collector      │
+│  traceparent + spans │   /otlp/    │  :4319 (HTTP+CORS)   │
+│  (web-ui service)    │   via Nginx │  batch → gRPC        │
+└──────────────────────┘             └──────────┬───────────┘
                                                 │ gRPC
-MCP Server Container                            │ (Docker internal)
+Python Process (host)                           │
+┌──────────────────────┐     gRPC     ┌──────────▼───────────┐
+│  MAF + OTel SDK      │ ──────────→  │  Aspire Dashboard    │
+│  FastAPI auto-instr. │   :4317      │  :18888 (UI)         │
+│                      │              │  :18889 (OTLP gRPC)  │
+│  TracerProvider      │              │  :18890 (OTLP HTTP)  │
+│  MeterProvider       │              └──────────────────────┘
+│  LoggerProvider      │                        ▲
+└──────────────────────┘                        │ gRPC
+                                                │ (Docker internal)
+MCP Server Container                            │
 ┌──────────────────────┐     gRPC               │
 │  FastMCP 3.0         │ ──────────→ aspire-dashboard:18889
 │  + OTel auto-instr.  │
@@ -37,7 +45,8 @@ MCP Server Container                            │ (Docker internal)
 
 - **Host → Aspire**: Port 4317 mapped to container port 18889
 - **MCP → Aspire**: Docker internal network, container-to-container (`aspire-dashboard:18889`)
-- Both services appear independently in the Aspire Dashboard UI
+- **Browser → OTel Collector → Aspire**: OTLP/HTTP with CORS on port 4319, forwarded via gRPC
+- All three services appear independently in the Aspire Dashboard UI
 
 ## Setup Checklist
 
@@ -122,6 +131,20 @@ The MCP server container uses its own set of OTEL variables (configured in `dock
 | `OTEL_SERVICE_NAME` | `travel-mcp-tools` | MCP server service name |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | `http://aspire-dashboard:18889` | Aspire via Docker internal network |
 | `OTEL_EXPORTER_OTLP_PROTOCOL` | `grpc` | Transport protocol |
+
+The API server (`api.py`) adds:
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `API_HOST` | `0.0.0.0` | FastAPI bind address |
+| `API_PORT` | `8000` | FastAPI port |
+
+The browser telemetry (`telemetry.js`) uses hardcoded values (no env vars in browser):
+
+| Config | Value | Purpose |
+|--------|-------|---------|
+| `serviceName` | `travel-planner-web-ui` | Browser service name in Aspire |
+| `otlpEndpoint` | `/otlp/v1/traces` | Routed via Nginx to OTel Collector |
 
 > **Note**: Use `OTEL_EXPORTER_OTLP_ENDPOINT` (base endpoint) rather than
 > signal-specific variables like `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT`. The base
@@ -219,6 +242,101 @@ When adding new services to the project, follow this pattern:
 This ensures every service in the ecosystem reports to the same Aspire Dashboard
 instance with consistent configuration.
 
+## API Server Telemetry
+
+The FastAPI wrapper (`api.py`) is auto-instrumented with `opentelemetry-instrumentation-fastapi`:
+
+```python
+from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
+
+app = FastAPI(...)
+FastAPIInstrumentor.instrument_app(app)
+```
+
+This creates automatic HTTP spans for every request. Combined with `trace_workflow()`
+context managers, traces show the full request lifecycle:
+
+`HTTP POST /api/plan → trace_workflow → agent invocations → MCP tool calls`
+
+The API server follows the same `load_dotenv()` → `setup_telemetry()` → `shutdown_telemetry()`
+pattern as `main.py`.
+
+## Browser Telemetry
+
+The Web UI includes `telemetry.js`, a lightweight OpenTelemetry-compatible browser
+instrumentation module that provides end-to-end distributed tracing from user click
+to LLM response.
+
+### What It Does
+
+1. **Generates W3C `traceparent` headers** for `fetch()` calls to `/api/` endpoints
+2. **Creates custom spans**: `user.submit_query`, `ui.stream_started`, `ui.agent_message_rendered`, `ui.stream_complete`, `http.fetch`
+3. **Exports traces** to `/otlp/v1/traces` (Nginx proxies to OTel Collector) in OTLP JSON format
+4. **Batch buffers** spans (max 50, flush every 5 seconds)
+
+### Why Not Full OTel JS SDK?
+
+For this PoC, a lightweight implementation (~250 lines) avoids:
+- Heavy bundle size from the full SDK
+- Build step requirement (Webpack/Rollup)
+- CDN dependency issues with ESM modules
+
+In production, replace with the full `@opentelemetry/sdk-trace-web` bundle.
+
+### Distributed Trace Flow
+
+```
+Browser (telemetry.js)
+    │ fetch('/api/plan', { headers: { traceparent: '00-{traceId}-{spanId}-01' } })
+    ▼
+FastAPI (api.py)
+    │ FastAPIInstrumentor extracts traceparent, creates child span
+    ▼
+MAF Workflow
+    │ Agent → MCP HTTP call with propagated W3C context
+    ▼
+MCP Server
+    │ Starlette auto-instrumentation extracts traceparent
+    ▼
+Aspire Dashboard shows: browser → API → workflow → agent → MCP tool
+```
+
+## OpenTelemetry Collector (Browser Trace Bridge)
+
+Browsers cannot send gRPC, and Aspire Dashboard does not serve CORS headers.
+The OTel Collector bridges this gap:
+
+- **Receives**: OTLP/HTTP on port 4319 with CORS enabled (`allowed_origins: ["*"]`)
+- **Processes**: Batches spans (5s timeout, 512 batch size)
+- **Exports**: gRPC to `aspire-dashboard:18889`
+- **Debug**: Basic verbosity logging for troubleshooting
+
+Configuration: `otel-collector/otel-collector-config.yaml`
+
+```yaml
+receivers:
+  otlp:
+    protocols:
+      http:
+        endpoint: "0.0.0.0:4319"
+        cors:
+          allowed_origins: ["*"]
+          allowed_headers: ["*"]
+
+exporters:
+  otlp/aspire:
+    endpoint: "aspire-dashboard:18889"
+    tls:
+      insecure: true
+
+service:
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [otlp/aspire, debug]
+```
+
 ## Troubleshooting
 
 | Symptom | Likely Cause | Fix |
@@ -230,6 +348,10 @@ instance with consistent configuration.
 | UNIMPLEMENTED errors for metrics/logs | Backend only supports traces (e.g., Jaeger) | Switch to Aspire Dashboard which supports all three signals |
 | MCP server spans not visible | MCP container can't reach Aspire | Check `OTEL_EXPORTER_OTLP_ENDPOINT` in docker-compose uses `aspire-dashboard:18889` (Docker network) |
 | MCP spans not linked to agent spans | Trace context not propagated | Ensure `opentelemetry-instrument` is used (auto-instruments HTTP server to extract `traceparent`) |
+| Browser spans not in Aspire | OTel Collector not running | `docker compose up -d` and verify `otel-collector` service is healthy |
+| Browser spans not in Aspire | CORS blocking requests | Check OTel Collector config has `cors.allowed_origins: ["*"]` |
+| No browser → API trace linkage | `traceparent` not injected | Verify `telemetry.js` loads before `app.js` in `index.html` |
+| API spans missing | `FastAPIInstrumentor` not called | Ensure `FastAPIInstrumentor.instrument_app(app)` is in `api.py` |
 
 ## Why Aspire Dashboard Instead of Jaeger?
 

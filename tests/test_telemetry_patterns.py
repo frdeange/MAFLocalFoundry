@@ -283,3 +283,169 @@ class TestMcpServerTelemetryConfig:
         assert "depends_on" in content, (
             "MCP server should depend on aspire-dashboard in docker-compose"
         )
+
+
+# ──────────────────────────────────────────────────────────────
+# API Telemetry Patterns (api.py)
+# ──────────────────────────────────────────────────────────────
+
+class TestApiTelemetryPatterns:
+    """Validate that the FastAPI wrapper follows telemetry best practices.
+
+    Why: The API layer must be auto-instrumented with OpenTelemetry so that
+    HTTP spans appear in the Aspire Dashboard alongside workflow spans.
+    """
+
+    def _read_api(self) -> str:
+        path = os.path.join(BASE_DIR, "api.py")
+        with open(path, encoding="utf-8") as f:
+            return f.read()
+
+    def _read_requirements(self) -> str:
+        path = os.path.join(BASE_DIR, "requirements.txt")
+        with open(path, encoding="utf-8") as f:
+            return f.read()
+
+    def test_fastapi_instrumentation_in_requirements(self) -> None:
+        """requirements.txt must include opentelemetry-instrumentation-fastapi."""
+        content = self._read_requirements()
+        assert "opentelemetry-instrumentation-fastapi" in content, (
+            "requirements.txt must include opentelemetry-instrumentation-fastapi "
+            "for automatic HTTP span creation"
+        )
+
+    def test_api_imports_fastapi_instrumentor(self) -> None:
+        """api.py must import FastAPIInstrumentor."""
+        source = self._read_api()
+        assert "FastAPIInstrumentor" in source
+
+    def test_api_instruments_app(self) -> None:
+        """api.py must call FastAPIInstrumentor.instrument_app(app)."""
+        source = self._read_api()
+        assert "FastAPIInstrumentor.instrument_app(app)" in source
+
+    def test_api_calls_setup_telemetry(self) -> None:
+        """api.py must call setup_telemetry during startup."""
+        source = self._read_api()
+        assert "setup_telemetry(" in source
+
+    def test_api_calls_shutdown_telemetry(self) -> None:
+        """api.py must call shutdown_telemetry during shutdown."""
+        source = self._read_api()
+        assert "shutdown_telemetry()" in source
+
+    def test_api_load_dotenv_before_otel(self) -> None:
+        """load_dotenv() must be called before OTel imports in api.py."""
+        source = self._read_api()
+        dotenv_pos = source.find("load_dotenv()")
+        otel_pos = source.find("opentelemetry")
+        assert dotenv_pos != -1, "load_dotenv() not found in api.py"
+        assert otel_pos != -1, "OpenTelemetry imports not found in api.py"
+        assert dotenv_pos < otel_pos, (
+            "load_dotenv() must appear BEFORE OpenTelemetry imports in api.py"
+        )
+
+    def test_api_uses_trace_workflow(self) -> None:
+        """api.py must use trace_workflow context manager for request tracing."""
+        source = self._read_api()
+        assert "trace_workflow" in source
+
+
+# ──────────────────────────────────────────────────────────────
+# Browser Telemetry Patterns (web_ui/telemetry.js)
+# ──────────────────────────────────────────────────────────────
+
+class TestBrowserTelemetryPatterns:
+    """Validate browser-side OpenTelemetry instrumentation.
+
+    Why: End-to-end distributed tracing requires the browser to generate
+    trace IDs and propagate them to the backend via W3C traceparent headers.
+    Traces are exported via OTLP/HTTP to the OTel Collector.
+    """
+
+    def _read_telemetry_js(self) -> str:
+        path = os.path.join(BASE_DIR, "web_ui", "telemetry.js")
+        with open(path, encoding="utf-8") as f:
+            return f.read()
+
+    def test_browser_service_name(self) -> None:
+        """Browser telemetry must identify itself with a service name."""
+        source = self._read_telemetry_js()
+        assert "travel-planner-web-ui" in source
+
+    def test_browser_otlp_endpoint(self) -> None:
+        """Traces must be sent to /otlp/v1/traces (Nginx proxy)."""
+        source = self._read_telemetry_js()
+        assert "/otlp/v1/traces" in source
+
+    def test_browser_traceparent_propagation(self) -> None:
+        """Fetch calls to /api/ must include traceparent header."""
+        source = self._read_telemetry_js()
+        assert "traceparent" in source
+
+    def test_browser_only_instruments_api_calls(self) -> None:
+        """Traceparent must NOT be added to /otlp/ calls (avoids loops)."""
+        source = self._read_telemetry_js()
+        assert "/api/" in source
+
+    def test_browser_otlp_json_format(self) -> None:
+        """Spans must be exported using OTLP JSON (resourceSpans)."""
+        source = self._read_telemetry_js()
+        assert "resourceSpans" in source
+
+    def test_browser_batch_export(self) -> None:
+        """Spans should be batched before export."""
+        source = self._read_telemetry_js()
+        assert "spanBuffer" in source or "FLUSH_INTERVAL" in source
+
+
+# ──────────────────────────────────────────────────────────────
+# OTel Collector Telemetry Bridge
+# ──────────────────────────────────────────────────────────────
+
+class TestOtelCollectorBridge:
+    """Validate the OTel Collector is configured as a CORS bridge.
+
+    Why: Browsers cannot send gRPC and Aspire Dashboard doesn't serve
+    CORS headers. The Collector accepts OTLP/HTTP with CORS, then
+    forwards via gRPC to Aspire Dashboard.
+    """
+
+    def _read_collector_config(self) -> str:
+        path = os.path.join(BASE_DIR, "otel-collector", "otel-collector-config.yaml")
+        with open(path, encoding="utf-8") as f:
+            return f.read()
+
+    def _read_compose(self) -> str:
+        path = os.path.join(BASE_DIR, "docker-compose.yml")
+        with open(path, encoding="utf-8") as f:
+            return f.read()
+
+    def test_collector_in_compose(self) -> None:
+        """docker-compose.yml must include otel-collector service."""
+        content = self._read_compose()
+        assert "otel-collector:" in content
+
+    def test_collector_cors_enabled(self) -> None:
+        """Collector must have CORS configured for browser access."""
+        config = self._read_collector_config()
+        assert "cors" in config
+        assert "allowed_origins" in config
+
+    def test_collector_exports_to_aspire(self) -> None:
+        """Collector must forward traces to Aspire Dashboard."""
+        config = self._read_collector_config()
+        assert "aspire-dashboard" in config
+
+    def test_collector_traces_pipeline(self) -> None:
+        """Collector must have a traces pipeline defined."""
+        config = self._read_collector_config()
+        assert "traces:" in config
+
+    def test_nginx_proxies_otlp_to_collector(self) -> None:
+        """Nginx must proxy /otlp/ requests to the Collector."""
+        path = os.path.join(BASE_DIR, "web_ui", "nginx.conf")
+        with open(path, encoding="utf-8") as f:
+            nginx = f.read()
+        assert "otel-collector" in nginx
+        assert "/otlp/" in nginx
