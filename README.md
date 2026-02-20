@@ -15,14 +15,14 @@ User Query → [Researcher] → [WeatherAnalyst] → [Planner] → Travel Plan
 - **In-process orchestration** via MAF `SequentialBuilder`
 - **FoundryLocal** as local SLM runtime (no API keys required)
 - **FastMCP** tool server in Docker container (Streamable HTTP)
-- **OpenTelemetry** tracing with Jaeger visualization
+- **OpenTelemetry** observability with Aspire Dashboard (traces + metrics + logs)
 - **Architecture compliance tests** with pytest
 - **Configurable** model and endpoints via `.env`
 
 ## Prerequisites
 
 - Python 3.13+
-- Docker Desktop (for MCP server and Jaeger)
+- Docker Desktop (for MCP server and Aspire Dashboard)
 - NVIDIA GPU with CUDA support (for FoundryLocal)
 - [FoundryLocal](https://github.com/microsoft/foundry-local) installed
 
@@ -49,7 +49,7 @@ docker compose up -d
 
 This starts:
 - **MCP Server** on port 8090 (travel tools: weather, time, restaurants)
-- **Jaeger** UI on port 16686 (trace visualization)
+- **Aspire Dashboard** UI on port 18888 (traces + metrics + logs)
 
 ### 4. Run the Travel Planner
 
@@ -63,8 +63,8 @@ python main.py "Plan a 5-day trip to Barcelona, Spain. I love architecture and t
 
 ### 5. View Traces
 
-Open [http://localhost:16686](http://localhost:16686) and search for service
-`travel-planner-orchestration`.
+Open [http://localhost:18888](http://localhost:18888) to view traces, metrics,
+and structured logs for the `travel-planner-orchestration` service.
 
 ## Configuration
 
@@ -92,7 +92,7 @@ pytest tests/test_mcp_tools.py -v
 
 ```
 ├── main.py                      # Entry point
-├── docker-compose.yml           # MCP server + Jaeger
+├── docker-compose.yml           # MCP server + Aspire Dashboard
 ├── .env                         # Configuration
 ├── src/
 │   ├── config.py                # Settings from env vars
@@ -113,6 +113,7 @@ pytest tests/test_mcp_tools.py -v
 ## Documentation
 
 - [Architecture Overview](docs/architecture.md)
+- [Telemetry Guide](docs/telemetry-guide.md)
 - [Adding New Agents](docs/adding-agents.md)
 - [Creating Workflows](docs/creating-workflows.md)
 - [Agent Design Guide](docs/agent-design-guide.md)
@@ -124,6 +125,6 @@ pytest tests/test_mcp_tools.py -v
 | Orchestration | Microsoft Agent Framework (SequentialBuilder) |
 | LLM Runtime | FoundryLocal (local GPU inference) |
 | Tool Protocol | Model Context Protocol (MCP) via FastMCP |
-| Observability | OpenTelemetry + Jaeger |
+| Observability | OpenTelemetry + Aspire Dashboard |
 | Containers | Docker Compose |
 | Language | Python 3.13 |

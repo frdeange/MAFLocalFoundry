@@ -8,7 +8,7 @@ Architecture:
     - In-process orchestration via MAF SequentialBuilder
     - 3 agents: Researcher → WeatherAnalyst → Planner
     - MCP server provides travel tools (weather, time, restaurants)
-    - OpenTelemetry traces exported to Jaeger
+    - OpenTelemetry traces exported to Aspire Dashboard
 
 Usage:
     python main.py
@@ -138,7 +138,7 @@ async def run_travel_planner(query: str) -> None:
         print("\n  ⚠ No output received from the workflow.\n")
 
     print("=" * 70)
-    print("  ✓ Workflow complete! Check Jaeger UI at http://localhost:16686")
+    print("  ✓ Workflow complete! Check Aspire Dashboard at http://localhost:18888")
     print("=" * 70)
 
     # ── 6. Flush telemetry ───────────────────────────────────

@@ -19,7 +19,7 @@ class TestSetupTelemetry:
     """Tests for telemetry initialization."""
 
     def test_setup_does_not_raise(self) -> None:
-        """setup_telemetry should not raise even without Jaeger running."""
+        """setup_telemetry should not raise even without the OTLP backend running."""
         setup_telemetry(service_name="test-service")
 
     def test_get_tracer_returns_tracer(self) -> None:

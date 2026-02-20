@@ -3,7 +3,7 @@
 # ──────────────────────────────────────────────────────────────
 # Services:
 #   - mcp-server:  FastMCP travel tools (Streamable HTTP, port 8090)
-#   - jaeger:      Distributed tracing UI + OTLP collector
+#   - aspire:      .NET Aspire Dashboard (traces + metrics + logs)
 #
 # Usage:
 #   docker compose up -d          # Start services
@@ -31,14 +31,14 @@ services:
       retries: 3
       start_period: 5s
 
-  # ── Jaeger (All-in-One) ────────────────────────────────────
-  jaeger:
-    image: jaegertracing/all-in-one:latest
-    container_name: travel-jaeger
+  # ── Aspire Dashboard (Traces + Metrics + Logs) ─────────────
+  aspire-dashboard:
+    image: mcr.microsoft.com/dotnet/aspire-dashboard:latest
+    container_name: travel-aspire-dashboard
     ports:
-      - "16686:16686"   # Jaeger UI
-      - "4317:4317"     # OTLP gRPC
-      - "4318:4318"     # OTLP HTTP
+      - "18888:18888"  # Aspire UI
+      - "4317:18889"   # OTLP gRPC (host 4317 → container 18889)
+      - "4318:18890"   # OTLP HTTP (host 4318 → container 18890)
     environment:
-      - COLLECTOR_OTLP_ENABLED=true
+      - DOTNET_DASHBOARD_UNSECURED_ALLOW_ANONYMOUS=true
     restart: unless-stopped

@@ -35,9 +35,9 @@ This project implements a **multi-agent orchestration** proof-of-concept using t
 │                     HTTP  │               gRPC  │           │
 │                           ▼                     ▼           │
 │  ┌──────────────────────────┐  ┌─────────────────────────┐  │
-│  │   Docker: MCP Server     │  │   Docker: Jaeger        │  │
-│  │   FastMCP (port 8090)    │  │   UI (port 16686)       │  │
-│  │   Streamable HTTP        │  │   OTLP (port 4317)      │  │
+│  │   Docker: MCP Server     │  │   Docker: Aspire        │  │
+│  │   FastMCP (port 8090)    │  │   UI (port 18888)       │  │
+│  │   Streamable HTTP        │  │   OTLP gRPC (port 4317) │  │
 │  └──────────────────────────┘  └─────────────────────────┘  │
 └─────────────────────────────────────────────────────────────┘
 ```
@@ -50,7 +50,7 @@ This project implements a **multi-agent orchestration** proof-of-concept using t
 | LLM Runtime | FoundryLocal | Local GPU inference, no API keys, model configured via `.env` |
 | Agent-to-Agent | Shared conversation (list[Message]) | SequentialBuilder passes messages down the chain automatically |
 | External Tools | FastMCP (Streamable HTTP) | Single MCP server in Docker container, no auth, port 8090 |
-| Observability | OpenTelemetry → Jaeger | Console + Jaeger (Docker) for distributed tracing |
+| Observability | OpenTelemetry → Aspire Dashboard | Aspire Dashboard (Docker) for traces, metrics, and structured logs |
 | Configuration | `.env` + python-dotenv | Environment-based, 12-factor compatible |
 
 ### Components
@@ -77,13 +77,17 @@ The Weather Analyst agent connects to the MCP server using MAF's `MCPStreamableH
 
 #### 3. Observability (Docker Container)
 
-- **Jaeger All-in-One**: Collects and visualizes traces
-- **OTLP gRPC**: Port 4317 (agent framework default)
-- **UI**: Port 16686
+- **Aspire Dashboard**: Collects and visualizes traces, metrics, and structured logs
+- **OTLP gRPC**: Host port 4317 → container port 18889
+- **OTLP HTTP**: Host port 4318 → container port 18890
+- **UI**: Port 18888
 
 The Agent Framework's `configure_otel_providers()` automatically instruments all agent
 calls, model invocations, and tool executions. Custom business spans wrap the workflow
 and individual agent steps.
+
+> **Important**: See [Telemetry Guide](telemetry-guide.md) for setup requirements and
+> common pitfalls when working with OpenTelemetry in this project.
 
 ### Data Flow
 
@@ -116,7 +120,7 @@ Final Travel Plan displayed to user
 ```
 localOrchestration/
 ├── main.py                      # Entry point
-├── docker-compose.yml           # MCP server + Jaeger
+├── docker-compose.yml           # MCP server + Aspire Dashboard
 ├── requirements.txt             # Python dependencies
 ├── .env                         # Environment configuration
 ├── .env.example                 # Template for .env

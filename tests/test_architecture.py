@@ -193,17 +193,17 @@ class TestDockerCompose:
         assert "mcp-server:" in content
         assert "8090:8090" in content
 
-    def test_docker_compose_has_jaeger(self) -> None:
+    def test_docker_compose_has_aspire_dashboard(self) -> None:
         path = os.path.join(self.BASE_DIR, "docker-compose.yml")
         content = open(path, encoding="utf-8").read()
-        assert "jaeger:" in content
-        assert "16686:16686" in content
-        assert "4317:4317" in content
+        assert "aspire-dashboard:" in content
+        assert "18888:18888" in content  # Aspire UI
+        assert "4317:18889" in content   # OTLP gRPC
 
     def test_docker_compose_has_otlp_enabled(self) -> None:
         path = os.path.join(self.BASE_DIR, "docker-compose.yml")
         content = open(path, encoding="utf-8").read()
-        assert "COLLECTOR_OTLP_ENABLED=true" in content
+        assert "DOTNET_DASHBOARD_UNSECURED_ALLOW_ANONYMOUS=true" in content
 
 
 class TestArchitectureConstraints:

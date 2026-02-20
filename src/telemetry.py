@@ -4,7 +4,7 @@ Telemetry Module
 Configures OpenTelemetry tracing via the Agent Framework's built-in provider,
 and exposes helpers for custom business-level spans and metrics.
 
-Exports traces to Jaeger via OTLP gRPC (port 4317).
+Exports traces to the OTLP backend (Aspire Dashboard by default) via gRPC (port 4317).
 """
 
 import logging
@@ -153,7 +153,7 @@ def shutdown_telemetry() -> None:
     """Flush all pending spans/metrics and shut down providers.
 
     Must be called before process exit to ensure all telemetry
-    data is exported to the backend (e.g., Jaeger).
+    data is exported to the backend (e.g., Aspire Dashboard).
     BatchSpanProcessor buffers data and may lose it on abrupt exit.
     """
     tracer_provider = trace.get_tracer_provider()
