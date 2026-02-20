@@ -8,6 +8,7 @@ Exports traces to Jaeger via OTLP gRPC (port 4317).
 """
 
 import logging
+import os
 import time
 from contextlib import contextmanager
 from typing import Any, Generator
@@ -43,10 +44,11 @@ def setup_telemetry(service_name: str = "travel-planner-orchestration") -> None:
         from agent_framework.observability import configure_otel_providers
 
         configure_otel_providers(
-            vs_code_extension_port=4317,
             enable_sensitive_data=True,
         )
-        logger.info("OpenTelemetry configured via Agent Framework (OTLP port 4317)")
+        logger.info("OpenTelemetry configured via Agent Framework (OTLP → %s)", 
+                     os.getenv("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT", 
+                               os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT", "not set")))
     except Exception as e:
         logger.warning("Failed to configure Agent Framework OTel providers: %s", e)
         logger.info("Telemetry will be limited to custom spans only")
@@ -145,3 +147,24 @@ def record_mcp_tool_call(tool_name: str, server_url: str) -> None:
     """
     if _mcp_tool_calls:
         _mcp_tool_calls.add(1, {"tool.name": tool_name, "mcp.server_url": server_url})
+
+
+def shutdown_telemetry() -> None:
+    """Flush all pending spans/metrics and shut down providers.
+
+    Must be called before process exit to ensure all telemetry
+    data is exported to the backend (e.g., Jaeger).
+    BatchSpanProcessor buffers data and may lose it on abrupt exit.
+    """
+    tracer_provider = trace.get_tracer_provider()
+    if hasattr(tracer_provider, "force_flush"):
+        tracer_provider.force_flush(timeout_millis=5000)  # type: ignore[attr-defined]
+        logger.info("Telemetry spans flushed")
+    if hasattr(tracer_provider, "shutdown"):
+        tracer_provider.shutdown()  # type: ignore[attr-defined]
+
+    meter_provider = metrics.get_meter_provider()
+    if hasattr(meter_provider, "force_flush"):
+        meter_provider.force_flush(timeout_millis=5000)  # type: ignore[attr-defined]
+    if hasattr(meter_provider, "shutdown"):
+        meter_provider.shutdown()  # type: ignore[attr-defined]

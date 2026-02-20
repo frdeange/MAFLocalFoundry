@@ -32,7 +32,10 @@ class Settings:
         default_factory=lambda: os.getenv("MCP_SERVER_URL", "http://localhost:8090/mcp")
     )
     otel_endpoint: str = field(
-        default_factory=lambda: os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://localhost:4317")
+        default_factory=lambda: os.getenv(
+            "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT",
+            os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://localhost:4317"),
+        )
     )
     otel_service_name: str = field(
         default_factory=lambda: os.getenv("OTEL_SERVICE_NAME", "travel-planner-orchestration")

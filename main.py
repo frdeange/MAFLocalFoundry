@@ -20,11 +20,16 @@ import logging
 import sys
 from typing import cast
 
+from dotenv import load_dotenv
+
+# Load .env BEFORE any MAF/OTel imports read environment variables
+load_dotenv()
+
 from agent_framework import Message
 from agent_framework_foundry_local import FoundryLocalClient
 
 from src.config import get_settings
-from src.telemetry import setup_telemetry, trace_workflow
+from src.telemetry import setup_telemetry, shutdown_telemetry, trace_workflow
 from src.workflows.travel_planner import build_travel_planner_workflow
 
 # ──────────────────────────────────────────────────────────────
@@ -135,6 +140,9 @@ async def run_travel_planner(query: str) -> None:
     print("=" * 70)
     print("  ✓ Workflow complete! Check Jaeger UI at http://localhost:16686")
     print("=" * 70)
+
+    # ── 6. Flush telemetry ───────────────────────────────────
+    shutdown_telemetry()
 
 
 def main() -> None:
