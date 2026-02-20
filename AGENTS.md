@@ -252,6 +252,7 @@ python main.py "Plan a trip to Paris"
 - **`prototypes/` directory** — contains early experiments, not part of the production pipeline
 - **MCP server has mock data** — weather, restaurants are hardcoded dictionaries (PoC)
 - **`load_dotenv()` must be called BEFORE MAF/OTel imports** in `main.py` — order matters
+- For documentation, logs, events, messages. Use English as default language. The chat in Copilot could be in the user language.
 
 ## External Documentation
 
